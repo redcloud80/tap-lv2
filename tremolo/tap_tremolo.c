@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/time.h>
 
 #include "lv2.h"
 #include "tap_utils.h"
@@ -36,13 +37,14 @@
 #define CONTROL_FREQ    0
 #define CONTROL_DEPTH   1
 #define CONTROL_GAIN    2
-#define INPUT_0         3
-#define OUTPUT_0        4
+#define CONTROL_TAP     3
+#define INPUT_0         4
+#define OUTPUT_0        5
 
 
 /* Total number of ports */
 
-#define PORTCOUNT_MONO   5
+#define PORTCOUNT_MONO   6
 
 
 /* cosine table for fast computations */
@@ -57,11 +59,13 @@ typedef struct {
 	float * Control_Freq;
 	float * Control_Depth;
 	float * Control_Gain;
+	float * Control_Tap;
 	float oldgain;
 	float * InputBuffer_1;
 	float * OutputBuffer_1;
 	double SampleRate;
 	float Phase;
+	int start_tap;      ///< when did the last tap happen (ms since epoch)
 } Tremolo;
 
 
@@ -98,6 +102,36 @@ activate_Tremolo(LV2_Handle Instance) {
 
 	ptr = (Tremolo *)Instance;
 	ptr->Phase = 0.0f;
+	// Reset tapping
+    ptr->start_tap = 0;
+}
+
+/**
+* Handles a tap on the tap button and calculates time differences
+* \param self pointer to current plugin instance
+* \return Beats per minute or zero if it didn't work
+*/
+static float handle_tap(Tremolo* self) {
+
+    float d = 0;
+
+    struct timeval t_cur;
+    gettimeofday(&t_cur, 0);
+
+    // convert it to milliseconds
+    long int t_cur_ms = floor(t_cur.tv_sec * 1000 + t_cur.tv_usec / 1000);
+
+    // If start tap is memorized, do some calculations
+    if (self->start_tap) {
+        d = t_cur_ms - self->start_tap;
+
+        // Reset if we exceed the maximum delay time
+        if (d <= 50 || d > 10000 ) {
+            d = 0;
+        }
+    }
+    self->start_tap = t_cur_ms;
+    return (d > 0 ? 60000 / d : 0);   // convert to bpm
 }
 
 void
@@ -125,6 +159,9 @@ connect_port_Tremolo(LV2_Handle Instance,
 		break;
 	case CONTROL_GAIN:
 		ptr->Control_Gain = (float*) DataLocation;
+		break;
+	case CONTROL_TAP:
+		ptr->Control_Tap = (float*) DataLocation;
 		break;
 	case INPUT_0:
 		ptr->InputBuffer_1 = (float*) DataLocation;
@@ -156,6 +193,14 @@ run_Tremolo(LV2_Handle Instance,
 	output = ptr->OutputBuffer_1;
 	freq = LIMIT(*(ptr->Control_Freq),0.0f,20.0f);
 	depth = LIMIT(*(ptr->Control_Depth),0.0f,100.0f);
+	
+	// First some TAP handling
+    if (*(ptr->Control_Tap) > 0) {
+        float d = handle_tap(ptr);
+        if (d > 0) 
+            freq = (float) d; // ptr->tempo_tap = (float)d;
+    }
+	
 
 	ptr->oldgain = (*(ptr->Control_Gain)+ptr->oldgain)*0.5;
 	gain = db2lin(LIMIT(ptr->oldgain,-70.0f,20.0f));
