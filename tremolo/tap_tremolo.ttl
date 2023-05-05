@@ -79,10 +79,11 @@ lv2:port
     a lv2:InputPort, lv2:ControlPort;
     lv2:index 3;
     lv2:symbol "tap";
-    lv2:name "Tapx";
+    lv2:name "Tap";
     lv2:default 0;
     lv2:minimum 0;
-    lv2:maximum 1;
+    lv2:maximum 127;
+    units:unit units:midiNote;
 ],
 [
     a lv2:InputPort, lv2:AudioPort;
